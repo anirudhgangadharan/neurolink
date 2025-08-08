@@ -47,7 +47,7 @@ No build tools required
 Optionally serve with a local server for mobile/touch testing:
 
 bashpython3 -m http.server 8080
-# then open http://localhost:8080
+# then open  https://anirudhgangadharan.github.io/neurolink/
 Deployment
 
 GitHub Pages: Push index.html to main branch, enable Pages in repo settings
