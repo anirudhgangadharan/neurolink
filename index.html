@@ -1,12 +1,699 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta http-equiv="refresh" content="0; url=game.html">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Redirecting...</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>NeuroLink — Minimal Puzzle of Connection</title>
+<meta name="description" content="NeuroLink — connect nodes to stabilize the hub. Production-ready single-file HTML/JS game." />
+<style>
+  :root{
+    --bg:#0b1220;
+    --panel:#0f1724cc;
+    --accent:#00f3a3;
+    --muted:#9aa4b2;
+    --danger:#ff5c5c;
+    --glass: rgba(255,255,255,0.04);
+    --radius:14px;
+    --ui-font: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  }
+  html,body{height:100%;margin:0;background:linear-gradient(180deg,var(--bg),#07101a 80%);color:#e6eef6;font-family:var(--ui-font);}
+  .app{
+    display:flex;gap:16px;align-items:flex-start;padding:20px;box-sizing:border-box;
+    max-width:1200px;margin:18px auto;
+  }
+  .panel{
+    background:var(--panel);backdrop-filter: blur(6px);border-radius:12px;padding:12px;box-shadow: 0 6px 18px rgba(3,6,12,0.6);
+  }
+
+  /* Left: canvas area */
+  .viewport{
+    flex:1;min-height:560px;display:flex;flex-direction:column;border-radius:12px;overflow:hidden;
+  }
+  canvas{display:block;width:100%;height:100%;background:linear-gradient(120deg,#07122622,transparent);}
+
+  /* Right: controls */
+  .sidebar{width:320px;display:flex;flex-direction:column;gap:12px}
+  .title{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .brand{font-weight:700;font-size:1.15rem;color:var(--accent)}
+  .meta{font-size:0.9rem;color:var(--muted)}
+  .stats{display:flex;gap:8px;flex-wrap:wrap}
+  .chip{background:var(--glass);padding:8px 10px;border-radius:10px;color:var(--muted);font-size:0.9rem}
+
+  .controls{display:flex;flex-direction:column;gap:10px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 12px;border-radius:10px;background:#0b1720;border:1px solid rgba(255,255,255,0.03);color:var(--accent);cursor:pointer;font-weight:600}
+  .btn.secondary{background:transparent;border:1px solid rgba(255,255,255,0.03);color:var(--muted);font-weight:600}
+  .btn:active{transform:translateY(1px)}
+  .small{font-size:0.85rem;padding:6px 8px;border-radius:8px}
+
+  .level-list{display:flex;flex-direction:column;gap:6px;max-height:200px;overflow:auto;padding-right:6px}
+  .level-item{display:flex;justify-content:space-between;align-items:center;padding:8px;border-radius:8px;background:linear-gradient(180deg, rgba(255,255,255,0.01), transparent);cursor:pointer}
+  .level-item:hover{background:rgba(255,255,255,0.02)}
+  footer{margin-top:12px;font-size:0.78rem;color:var(--muted)}
+
+  /* HUD overlay */
+  .hud{
+    position:absolute;left:22px;top:22px;display:flex;gap:10px;z-index:20;
+  }
+  .hud .meter{background:rgba(3,7,10,0.6);padding:8px;border-radius:10px;color:var(--muted);font-weight:600}
+
+  /* responsive */
+  @media (max-width:900px){
+    .app{flex-direction:column;padding:12px}
+    .sidebar{width:100%}
+    .viewport{min-height:420px}
+  }
+
+  /* accessibility focus */
+  button:focus, .level-item:focus{outline:3px solid rgba(0,243,163,0.12);outline-offset:2px}
+</style>
 </head>
 <body>
-  <p>If you are not redirected automatically, <a href="game.html">click here</a>.</p>
+<div class="app" role="application" aria-label="NeuroLink game">
+  <div class="viewport panel" id="viewportPanel">
+    <div class="hud" id="hud" aria-hidden="false">
+      <div class="meter" id="score">Score: 0</div>
+      <div class="meter" id="energy">Energy: 100</div>
+      <div class="meter" id="time">Time: 60s</div>
+    </div>
+    <canvas id="gameCanvas" width="900" height="600" aria-label="NeuroLink game canvas" tabindex="0"></canvas>
+  </div>
+
+  <aside class="sidebar panel" aria-labelledby="gameTitle">
+    <div class="title">
+      <div>
+        <div id="gameTitle" class="brand">NeuroLink</div>
+        <div class="meta">Connect nodes. Route pulses. Stabilize the hub.</div>
+      </div>
+      <div class="meta">v1.0</div>
+    </div>
+
+    <div class="controls" role="region" aria-label="Controls">
+      <div class="stats" aria-hidden="false">
+        <div class="chip" id="levelChip">Level 1</div>
+        <div class="chip" id="bestChip">Best: 0</div>
+        <div class="chip" id="movesChip">Moves: 0</div>
+      </div>
+
+      <div style="display:flex;gap:8px">
+        <button class="btn" id="startBtn" aria-pressed="false">Start</button>
+        <button class="btn secondary" id="pauseBtn">Pause</button>
+      </div>
+
+      <div>
+        <label for="difficulty" class="meta">Difficulty</label>
+        <select id="difficulty" class="small" aria-label="Difficulty selector">
+          <option value="1">Easy</option>
+          <option value="2" selected>Normal</option>
+          <option value="3">Hard</option>
+        </select>
+      </div>
+
+      <div>
+        <div class="meta">Levels</div>
+        <div class="level-list" id="levelList" role="listbox" aria-label="Level selection">
+          <!-- populated by JS -->
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px">
+        <button id="restartBtn" class="btn secondary">Restart</button>
+        <button id="resetAllBtn" class="btn secondary">Reset Progress</button>
+      </div>
+
+      <footer>
+        <div class="meta">Controls: Drag from node → node (or tap). Keyboard: Space = pulse, R = restart, ← → = level</div>
+      </footer>
+    </div>
+  </aside>
+</div>
+
+<script>
+/* ===============================
+   NeuroLink - Single-file Game
+   Production-minded: modular code, deterministic RNG,
+   localStorage persistence, accessibility, performance.
+   =============================== */
+
+(() => {
+  'use strict';
+
+  /* -----------------------------
+     Utilities
+     ----------------------------- */
+  const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+  const rand = (r) => Math.random() * r;
+  const seedRandom = (seed) => {
+    // Mulberry32 simple deterministic PRNG
+    let t = seed >>> 0;
+    return () => {
+      t += 0x6D2B79F5;
+      let r = Math.imul(t ^ t >>> 15, 1 | t);
+      r ^= r + Math.imul(r ^ r >>> 7, 61 | r);
+      return ((r ^ r >>> 14) >>> 0) / 4294967296;
+    };
+  };
+
+  /* -----------------------------
+     Config & State
+     ----------------------------- */
+  const STORAGE_KEY = 'neurolink:v1';
+  let store = {
+    best: 0,
+    progress: { level: 1 },
+  };
+
+  // Read stored state
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw) store = Object.assign(store, JSON.parse(raw));
+  }catch(e){ console.warn('storage failed', e) }
+
+  const saveStore = () => {
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(store)); }catch(e){ /* ignore */ }
+  };
+
+  /* -----------------------------
+     Audio (small SFX engine)
+     ----------------------------- */
+  class SFX {
+    constructor(){
+      try{
+        this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      }catch(e){
+        this.ctx = null;
+      }
+    }
+    beep(freq=440, time=0.06, type='sine', gain=0.12){
+      if(!this.ctx) return;
+      const o = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      o.type = type; o.frequency.value = freq;
+      g.gain.value = gain;
+      o.connect(g); g.connect(this.ctx.destination);
+      o.start();
+      g.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + time);
+      o.stop(this.ctx.currentTime + time + 0.02);
+    }
+  }
+  const sfx = new SFX();
+
+  /* -----------------------------
+     Game Objects
+     ----------------------------- */
+  class Node {
+    constructor(x,y,id,seedR){
+      this.x = x; this.y = y; this.id = id;
+      this.radius = 12 + seedR()*8;
+      this.charge = 0; // 0..1
+      this.isHub = false;
+      this.fixed = false;
+      this.color = '#ffffff';
+      this.pulseTimer = 0;
+    }
+    screenPos() { return {x:this.x, y:this.y}; }
+  }
+
+  class Link {
+    constructor(a,b){
+      this.a = a; this.b = b;
+      this.strength = 1.0; // decays with use
+    }
+    other(node){ return node === this.a ? this.b : this.a; }
+  }
+
+  /* -----------------------------
+     Level generation
+     ----------------------------- */
+  const generateLevel = (levelNum, difficulty=2) => {
+    // Deterministic generator per level
+    const seedVal = 10007 + levelNum*7919 + difficulty*997;
+    const rng = seedRandom(seedVal);
+    const nodeCount = clamp(4 + Math.floor(levelNum * 0.8) + difficulty, 4, 16);
+    const w = canvas.width, h = canvas.height;
+    const nodes = [];
+    // place nodes with Poisson-disc like approach simplified
+    const tries = nodeCount * 6;
+    for(let i=0, id=0;i<tries && id<nodeCount;i++){
+      const x = 80 + rng() * (w-160);
+      const y = 80 + rng() * (h-160);
+      let ok=true;
+      for(const n of nodes){
+        const dx=n.x-x, dy=n.y-y;
+        if(dx*dx+dy*dy < (n.radius+36)*(n.radius+36)) { ok=false; break; }
+      }
+      if(ok){ nodes.push(new Node(x,y, id++, rng)); }
+    }
+    // choose hub
+    const hubIndex = Math.floor(rng()*nodes.length);
+    nodes[hubIndex].isHub = true;
+    nodes[hubIndex].radius += 6;
+    nodes[hubIndex].fixed = true;
+
+    // create links via Delaunay-like greedy MST + random extras
+    const links = [];
+    // connect nearest neighbors
+    for(let i=0;i<nodes.length;i++){
+      let nearest = null, ndist=Infinity;
+      for(let j=0;j<nodes.length;j++) if(i!==j){
+        const dx=nodes[i].x-nodes[j].x, dy=nodes[i].y-nodes[j].y;
+        const d = dx*dx+dy*dy;
+        if(d<ndist){ ndist=d; nearest=j; }
+      }
+      if(nearest !== null) links.push(new Link(nodes[i], nodes[nearest]));
+    }
+    // add random links
+    const extras = Math.floor(rng()*nodeCount);
+    for(let k=0;k<extras;k++){
+      const a = Math.floor(rng()*nodes.length);
+      const b = Math.floor(rng()*nodes.length);
+      if(a!==b) links.push(new Link(nodes[a], nodes[b]));
+    }
+    // level constraints
+    const timeLimit = Math.max(20, 60 - Math.floor(levelNum*2) - (difficulty*6));
+    const energy = 100 - (difficulty*10) - Math.floor(levelNum*1.5);
+    return { nodes, links, timeLimit, energy, seed:seedVal };
+  };
+
+  /* -----------------------------
+     Core Engine
+     ----------------------------- */
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d', { alpha: true });
+
+  // scale canvas for device pixel ratio
+  const DPR = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+  const resize = ()=>{
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = Math.floor(rect.width * DPR);
+    canvas.height = Math.floor(rect.height * DPR);
+  };
+  window.addEventListener('resize', () => {
+    resize();
+    engine.requestRedraw();
+  });
+  // initial sizing
+  resize();
+
+  const hud = {
+    scoreEl: document.getElementById('score'),
+    energyEl: document.getElementById('energy'),
+    timeEl: document.getElementById('time'),
+    levelChip: document.getElementById('levelChip'),
+    bestChip: document.getElementById('bestChip'),
+    movesChip: document.getElementById('movesChip'),
+  };
+
+  const ui = {
+    startBtn: document.getElementById('startBtn'),
+    pauseBtn: document.getElementById('pauseBtn'),
+    difficulty: document.getElementById('difficulty'),
+    levelList: document.getElementById('levelList'),
+    restartBtn: document.getElementById('restartBtn'),
+    resetAllBtn: document.getElementById('resetAllBtn'),
+  };
+
+  // Engine state
+  const engine = {
+    running: false,
+    paused: false,
+    lastTime: 0,
+    accum: 0,
+    dt: 1/60,
+    needRedraw: true,
+    levelNum: store.progress.level || 1,
+    difficulty: parseInt(ui.difficulty.value,10),
+    current: null,
+    links: [],
+    nodes: [],
+    score: 0,
+    energy: 100,
+    timeLeft: 60,
+    moves: 0,
+    pointerState: {dragging:false, startNode:null, pointerId: null},
+    fpsSamples: [],
+    requestRedraw(){ this.needRedraw = true; },
+    start(){
+      if(this.running) return;
+      this.difficulty = parseInt(ui.difficulty.value,10);
+      this.current = generateLevel(this.levelNum, this.difficulty);
+      this.nodes = this.current.nodes;
+      this.links = this.current.links;
+      this.score = 0;
+      this.energy = clamp(this.current.energy, 16, 200);
+      this.timeLeft = clamp(this.current.timeLimit, 10, 180);
+      this.moves = 0;
+      this.running = true; this.paused = false;
+      this.lastTime = performance.now();
+      sfx.beep(880,0.06,'sine');
+      this.requestRedraw();
+      requestAnimationFrame(loop);
+      updateUI();
+    },
+    pause(){
+      this.paused = !this.paused;
+      ui.pauseBtn.textContent = this.paused ? 'Resume' : 'Pause';
+      this.requestRedraw();
+    },
+    reset(){
+      this.running = false;
+      this.start();
+    },
+    tick(dt){
+      if(!this.running || this.paused) return;
+      // update timers
+      this.timeLeft -= dt;
+      if(this.timeLeft<=0){ this.failLevel(); return; }
+      // dissipate node charge
+      for(const n of this.nodes){
+        if(n.charge>0) n.charge = Math.max(0, n.charge - 0.4 * dt);
+        if(n.pulseTimer>0) n.pulseTimer = Math.max(0, n.pulseTimer - dt);
+      }
+      // pulse propagation (simple)
+      for(const l of this.links){
+        const power = (l.a.charge + l.b.charge) / 2;
+        l.strength = clamp(l.strength - dt*0.02, 0.2, 1.2);
+        // passive equalization
+        const delta = (l.a.charge - l.b.charge) * 0.02 * dt;
+        l.a.charge -= delta; l.b.charge += delta;
+      }
+      // check win: hub has charge above threshold and all nodes have minimal charge
+      const hub = this.nodes.find(n=>n.isHub);
+      if(hub && hub.charge > 0.6 && this.nodes.every(n=>n.charge>0.15 || n.isHub)){
+        this.completeLevel();
+      }
+    },
+    completeLevel(){
+      this.running = false;
+      this.score += Math.floor(this.timeLeft * 5 + this.energy*0.4 + 50);
+      store.best = Math.max(store.best, this.score);
+      store.progress.level = Math.min(999, this.levelNum + 1);
+      saveStore();
+      sfx.beep(1200,0.12,'sawtooth');
+      updateUI(true, 'Level complete! Advancing.');
+    },
+    failLevel(){
+      this.running = false;
+      this.score = Math.max(0, this.score - 20);
+      sfx.beep(120,0.15,'sine');
+      updateUI(true, 'Time up — try again.');
+    },
+    givePulse(node){
+      // cost energy, set node charge
+      const cost = 6;
+      if(this.energy < cost) { sfx.beep(220,0.05); return false; }
+      this.energy -= cost;
+      node.charge = clamp(node.charge + 0.6, 0, 1);
+      node.pulseTimer = 0.4;
+      sfx.beep(880 + Math.floor(Math.random()*200),0.06,'square');
+      this.moves++;
+      return true;
+    }
+  };
+
+  /* -----------------------------
+     Rendering
+     ----------------------------- */
+  const render = (ctx, w, h) => {
+    // clear
+    ctx.clearRect(0,0,w,h);
+    ctx.save();
+    // scale to CSS pixels
+    const scale = DPR;
+    ctx.scale(scale, scale);
+    const cssW = w/scale, cssH = h/scale;
+    // subtle background vignette
+    const g = ctx.createLinearGradient(0,0,cssW,cssH);
+    g.addColorStop(0,'rgba(4,10,20,0.18)');
+    g.addColorStop(1,'rgba(0,0,0,0.1)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,cssW,cssH);
+
+    // links
+    ctx.lineCap='round';
+    for(const l of engine.links){
+      const a = l.a, b = l.b;
+      // link color depends on strength & charges
+      const t = (a.charge + b.charge)/2;
+      const width = 1 + (l.strength * 2);
+      ctx.lineWidth = width;
+      const alpha = clamp(0.08 + t*0.9, 0.08, 0.95);
+      ctx.strokeStyle = `rgba(0,243,163,${alpha})`;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      // slight curve
+      const cx = (a.x + b.x)/2 + (Math.sin((a.id + b.id + performance.now()/600)*0.7)*10);
+      const cy = (a.y + b.y)/2 + (Math.cos((a.id + b.id + performance.now()/700)*0.8)*8);
+      ctx.quadraticCurveTo(cx, cy, b.x, b.y);
+      ctx.stroke();
+
+      // pulse particle along link (if strong)
+      if(t>0.18 && l.strength>0.25){
+        const count = Math.floor(1 + t*4);
+        for(let i=0;i<count;i++){
+          const p = (Math.sin(performance.now()/400 + (i*2)) * 0.5 + 0.5) * 0.9;
+          const ix = a.x * (1-p) + b.x * p;
+          const iy = a.y * (1-p) + b.y * p;
+          ctx.beginPath();
+          ctx.fillStyle = `rgba(0,243,163,${0.18 + p*0.6})`;
+          ctx.arc(ix, iy, 1.8 + p*1.6, 0, Math.PI*2);
+          ctx.fill();
+        }
+      }
+    }
+
+    // nodes
+    for(const n of engine.nodes){
+      // glow
+      const charge = n.charge;
+      const glow = 8 + charge*28;
+      const grad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, 60);
+      grad.addColorStop(0, `rgba(0,243,163,${0.12 + charge*0.5})`);
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(n.x, n.y, glow, 0, Math.PI*2); ctx.fill();
+
+      // node body
+      ctx.beginPath();
+      ctx.fillStyle = n.isHub ? '#ffffff' : '#d3eaf0';
+      ctx.arc(n.x, n.y, n.radius, 0, Math.PI*2);
+      ctx.fill();
+
+      // inner core shows charge
+      const innerR = n.radius * (0.36 + 0.5*charge);
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(0,20,30,${0.1})`;
+      ctx.arc(n.x, n.y, innerR, 0, Math.PI*2);
+      ctx.fill();
+
+      // outline
+      ctx.lineWidth = n.isHub ? 2.5 : 1.2;
+      ctx.strokeStyle = `rgba(0,243,163,${0.45 + charge*0.5})`;
+      ctx.stroke();
+
+      // id label minimal for accessibility (not visible)
+      // small pulse indicator
+      if(n.pulseTimer > 0){
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(255,255,255,${0.08 + n.pulseTimer*0.6})`;
+        ctx.arc(n.x + n.radius*1.2, n.y - n.radius*1.2, 3 + n.pulseTimer*4, 0, Math.PI*2);
+        ctx.fill();
+      }
+    }
+
+    // crosshair while dragging
+    if(engine.pointerState.dragging && engine.pointerState.startNode){
+      ctx.beginPath();
+      ctx.setLineDash([6,6]);
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      const s = engine.pointerState.dragPos || {x:0,y:0};
+      ctx.moveTo(engine.pointerState.startNode.x, engine.pointerState.startNode.y);
+      ctx.lineTo(s.x, s.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // HUD overlay (center)
+    ctx.restore();
+  };
+
+  /* -----------------------------
+     Interaction & Input
+     ----------------------------- */
+  function findNodeAt(x,y){
+    for(const n of engine.nodes){
+      const dx = x - n.x, dy = y - n.y;
+      if(dx*dx + dy*dy <= (n.radius+10)*(n.radius+10)) return n;
+    }
+    return null;
+  }
+
+  // pointer utilities (supports mouse + touch)
+  let activePointerId = null;
+  canvas.addEventListener('pointerdown', (ev)=>{
+    ev.preventDefault();
+    canvas.setPointerCapture(ev.pointerId);
+    const rect = canvas.getBoundingClientRect();
+    const x = (ev.clientX - rect.left);
+    const y = (ev.clientY - rect.top);
+    const node = findNodeAt(x,y);
+    if(node){
+      engine.pointerState.dragging = true;
+      engine.pointerState.startNode = node;
+      engine.pointerState.pointerId = ev.pointerId;
+      engine.pointerState.dragPos = {x,y};
+    }
+  });
+  canvas.addEventListener('pointermove', (ev)=>{
+    if(!engine.pointerState.dragging || engine.pointerState.pointerId !== ev.pointerId) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = (ev.clientX - rect.left);
+    const y = (ev.clientY - rect.top);
+    engine.pointerState.dragPos = {x,y};
+    engine.requestRedraw();
+  });
+  canvas.addEventListener('pointerup', (ev)=>{
+    if(!engine.pointerState.dragging || engine.pointerState.pointerId !== ev.pointerId) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = (ev.clientX - rect.left);
+    const y = (ev.clientY - rect.top);
+    const target = findNodeAt(x,y);
+    const src = engine.pointerState.startNode;
+    engine.pointerState.dragging = false; engine.pointerState.startNode = null; engine.pointerState.pointerId = null;
+    if(target && src){
+      // create or toggle link
+      if(src===target){
+        // tap on same node → pulse it
+        engine.givePulse(src);
+      }else{
+        // either add a link or, if exists, pulse stronger
+        const existing = engine.links.find(l => (l.a===src && l.b===target) || (l.a===target && l.b===src));
+        if(existing){
+          // boost both nodes slightly
+          const ok = engine.givePulse(target); if(ok) target.charge = clamp(target.charge + 0.18,0,1);
+          existing.strength = clamp(existing.strength + 0.2, 0, 1.5);
+        }else{
+          engine.links.push(new Link(src, target));
+          engine.moves++;
+        }
+      }
+    }
+    engine.requestRedraw();
+  });
+
+  // keyboard
+  window.addEventListener('keydown',(e)=>{
+    if(e.key === ' '){ e.preventDefault(); // space = pulse hub
+      const hub = engine.nodes.find(n=>n.isHub);
+      if(hub) engine.givePulse(hub);
+    }
+    if(e.key.toLowerCase() === 'r'){ engine.reset(); }
+    if(e.key === 'ArrowRight'){ engine.levelNum++; engine.start(); }
+    if(e.key === 'ArrowLeft'){ engine.levelNum = Math.max(1, engine.levelNum-1); engine.start(); }
+  });
+
+  /* -----------------------------
+     Game loop
+     ----------------------------- */
+  function loop(ts){
+    const e = engine;
+    if(e.lastTime === 0) e.lastTime = ts;
+    const dt = Math.min(0.06, (ts - e.lastTime)/1000);
+    e.lastTime = ts;
+
+    if(e.running && !e.paused){
+      e.tick(dt);
+    }
+
+    if(e.needRedraw || e.running){
+      render(ctx, canvas.width, canvas.height);
+      e.needRedraw = false;
+      // update HUD DOM elements
+      hud.scoreEl.textContent = `Score: ${e.score}`;
+      hud.energyEl.textContent = `Energy: ${Math.round(e.energy)}`;
+      hud.timeEl.textContent = `Time: ${Math.max(0, Math.round(e.timeLeft))}s`;
+      hud.levelChip.textContent = `Level ${e.levelNum}`;
+      hud.bestChip.textContent = `Best: ${store.best}`;
+      hud.movesChip.textContent = `Moves: ${e.moves}`;
+    }
+
+    requestAnimationFrame(loop);
+  }
+
+  /* -----------------------------
+     UI Wiring
+     ----------------------------- */
+  ui.startBtn.addEventListener('click', ()=>{
+    engine.start();
+    ui.startBtn.setAttribute('aria-pressed','true');
+  });
+  ui.pauseBtn.addEventListener('click', ()=> engine.pause());
+  ui.restartBtn.addEventListener('click', ()=> engine.reset());
+  ui.resetAllBtn.addEventListener('click', ()=>{
+    if(!confirm('Reset all progress? This will clear best scores and level progress.')) return;
+    store = {best:0, progress:{level:1}}; saveStore();
+    engine.levelNum = 1; engine.start();
+  });
+  ui.difficulty.addEventListener('change', ()=> {
+    engine.difficulty = parseInt(ui.difficulty.value,10);
+    // adjust current level difficulty if running
+    if(engine.running) engine.start();
+  });
+
+  // level list generator (shows next 12)
+  function populateLevelList(){
+    ui.levelList.innerHTML = '';
+    for(let i=Math.max(1, store.progress.level-3); i<store.progress.level + 9; i++){
+      const itm = document.createElement('div');
+      itm.tabIndex = 0;
+      itm.className = 'level-item';
+      itm.setAttribute('role','option');
+      itm.innerHTML = `<div>Level ${i}</div><div class="meta">~${Math.max(20, 60 - i*2)}s</div>`;
+      itm.addEventListener('click', ()=>{
+        engine.levelNum = i;
+        engine.start();
+      });
+      ui.levelList.appendChild(itm);
+    }
+  }
+  populateLevelList();
+
+  function updateUI(showToast=false, message=''){
+    hud.bestChip.textContent = `Best: ${store.best}`;
+    if(showToast){
+      // minimal in-page toast
+      const el = document.createElement('div');
+      el.style.position='fixed';
+      el.style.right='18px'; el.style.bottom='18px';
+      el.style.padding='12px 16px'; el.style.background='rgba(4,8,12,0.9)';
+      el.style.borderRadius='10px'; el.style.color='white'; el.style.boxShadow='0 6px 20px rgba(0,0,0,0.5)';
+      el.textContent = message;
+      document.body.appendChild(el);
+      setTimeout(()=> el.style.opacity = '0.0', 1800);
+      setTimeout(()=> document.body.removeChild(el), 2600);
+      populateLevelList();
+    }
+  }
+
+  // load initial state into engine
+  engine.levelNum = store.progress.level || 1;
+  engine.difficulty = parseInt(ui.difficulty.value,10);
+
+  // start a paused preview (not running)
+  engine.current = generateLevel(engine.levelNum, engine.difficulty);
+  engine.nodes = engine.current.nodes;
+  engine.links = engine.current.links;
+  engine.timeLeft = engine.current.timeLimit;
+  engine.energy = engine.current.energy;
+  engine.requestRedraw();
+
+  // accessibility: focus canvas on load for keyboard controls
+  window.setTimeout(()=> canvas.focus(), 200);
+
+  // quick hint to user (console)
+  console.log('NeuroLink initialized — drop this file on any static host to deploy.');
+
+})();
+</script>
 </body>
 </html>
